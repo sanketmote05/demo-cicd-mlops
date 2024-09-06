@@ -1,0 +1,52 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-to-cml:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Get Project ID
+        env:
+          API_KEY: ${{ secrets.CML_API_KEY }}
+          CDSW_DOMAIN: "https://ml-0d9d45c4-174.sanket-5.kfjr-x0dh.cloudera.site"
+          PROJ_NAME: "cicd-demo"
+        run: |
+          PROJECT_ID=$(curl -X GET "$CDSW_DOMAIN/api/v2/projects?search_filter=%7B%22name%22%3A%22$PROJ_NAME%22%7D" -H "accept: application/json" -H "Authorization: Bearer $API_KEY" | jq -r ".projects|.[0]|.id")
+          echo "Project ID: $PROJECT_ID"
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+
+      - name: Create Bootstrap Job
+        env:
+          API_KEY: ${{ secrets.CML_API_KEY }}
+          CDSW_DOMAIN: "https://ml-0d9d45c4-174.sanket-5.kfjr-x0dh.cloudera.site"
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          RUN_TIME: "docker.repository.cloudera.com/cloudera/cdsw/ml-runtime-pbj-workbench-python3.9-standard:2024.02.1-b4"
+        run: |
+          JOB_ID=$(curl -X POST "$CDSW_DOMAIN/api/v2/projects/$PROJECT_ID/jobs" -H "accept: application/json" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d "{ \"cpu\": 2, \"memory\": 4, \"name\": \"bootstrap\", \"runtime_identifier\": \"$RUN_TIME\", \"script\": \"0_bootstrap.py\"}" | jq -r ".id")
+          echo "Job ID: $JOB_ID"
+          echo "JOB_ID=$JOB_ID" >> $GITHUB_ENV
+          curl -X POST "$CDSW_DOMAIN/api/v2/projects/$PROJECT_ID/jobs/$JOB_ID/runs" -H "accept: application/json" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json"
+
+      - name: Wait for 30 Seconds
+        run: sleep 30
+
+      - name: Create and Execute Fit Model Job (Run Experiment)
+        env:
+          API_KEY: ${{ secrets.CML_API_KEY }}
+          CDSW_DOMAIN: "https://ml-0d9d45c4-174.sanket-5.kfjr-x0dh.cloudera.site"
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          RUN_TIME: "docker.repository.cloudera.com/cloudera/cdsw/ml-runtime-pbj-workbench-python3.9-standard:2024.02.1-b4"
+        run: |
+          EXPERIMENT_JOB_ID=$(curl -X POST "$CDSW_DOMAIN/api/v2/projects/$PROJECT_ID/jobs" -H "accept: application/json" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d "{ \"cpu\": 2, \"memory\": 4, \"name\": \"train_experiment\", \"runtime_identifier\": \"$RUN_TIME\", \"script\": \"fit.py\"}" | jq -r ".id")
+          echo "Experiment Job ID: $EXPERIMENT_JOB_ID"
+          curl -X POST "$CDSW_DOMAIN/api/v2/projects/$PROJECT_ID/jobs/$EXPERIMENT_JOB_ID/runs" -H "accept: application/json" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json"
+
