@@ -1,7 +1,7 @@
 # Getting Started with Python
 
 This baseline project shows how to get the most out of [Python](http://ipython.org)
-on Cloudera Data Science Workbench.
+on Cloudera Data Science Workbench..
 
 ## Files
 
